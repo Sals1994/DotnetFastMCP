@@ -16,6 +16,7 @@ using FastMCP.Authentication.McpEndpoints;
 using FastMCP.Storage;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using FastMCP.Background;
+using FastMCP.Health;
 
 namespace FastMCP.Hosting;
 
@@ -358,6 +359,27 @@ public class McpServerBuilder
             $"MCP Server '{_mcpServer.Name}' is running.\n" +
             $"Registered Tools: {_mcpServer.Tools.Count}\n" +
             $"Registered Resources: {_mcpServer.Resources.Count}");
+
+        // ─── NEW: Health check endpoint ───────────────────────
+        var healthRegistry = app.Services.GetService<McpHealthCheckRegistry>();
+        if (healthRegistry != null)
+        {
+            var healthOptions = app.Services.GetRequiredService<McpHealthCheckOptions>();
+            app.MapGet(healthOptions.HealthEndpointPath, async (CancellationToken ct) =>
+            {
+                var result = await healthRegistry.RunAllChecksAsync(ct);
+                var httpStatus = result.Status switch
+                {
+                    "Healthy"  => 200,
+                    "Degraded" => 207,
+                    _          => 503
+                };
+                return Results.Json(result, statusCode: httpStatus);
+            })
+            .WithTags("mcp-health")
+            .AllowAnonymous();
+        }
+        // ─────────────────────────────────────────────────────
 
         return app;
     }
