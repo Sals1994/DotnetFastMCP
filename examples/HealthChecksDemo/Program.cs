@@ -14,10 +14,11 @@ builder.WithHealthChecks(checks =>
     checks.AddCheck("memory", () =>
         GC.GetTotalMemory(false) < 1_000_000_000L); // < 1 GB
 
+    checks.MaxResponseTimeMs = 5; // only 5ms allowed
     checks.AddAsyncCheck("simulated_database", async ct =>
     {
-        await Task.Delay(10, ct);  // simulate I/O
-        return true;               // always healthy in the demo
+        await Task.Delay(100, ct);  // simulate I/O
+        return false;               // always healthy in the demo
     });
 
     checks.AddAsyncCheck("simulated_llm_provider", async ct =>

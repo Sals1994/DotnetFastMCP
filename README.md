@@ -1,7 +1,7 @@
 # DotnetFastMCP - Enterprise-Grade Model Context Protocol Server Framework
 
 [![.NET 8.0](https://img.shields.io/badge/.NET-8.0-blue)](https://dotnet.microsoft.com)
-[![NuGet](https://img.shields.io/badge/NuGet-v1.14.0-orange)](https://www.nuget.org/packages/DotnetFastMCP)
+[![NuGet](https://img.shields.io/badge/NuGet-v1.15.0-orange)](https://www.nuget.org/packages/DotnetFastMCP)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-tekspry-black)](https://github.com/tekspry/.NetFastMCP)
 
@@ -47,7 +47,7 @@ DotnetFastMCP provides a clean, attribute-based approach to building MCP servers
 - ✅ **Production-Ready** - HttpClientFactory, Polly retry policies, connection pooling
 - ✅ **Plug-and-Play** - Simple extension methods: `builder.AddAnthropicProvider()`
 
-#### 📡 Observability (NEW! v1.14.0)
+#### 📡 Observability (v1.14.0)
 - ✅ **OpenTelemetry Integration** - First-class metrics and distributed tracing
 - ✅ **5 Auto-Tracked Metrics** - Tool invocations, duration, errors, prompt requests, resource reads
 - ✅ **One-Line Setup** - `builder.WithTelemetry()` — zero boilerplate
@@ -55,6 +55,16 @@ DotnetFastMCP provides a clean, attribute-based approach to building MCP servers
 - ✅ **OTel Semantic Conventions** - Standard tag names, exception events, span status
 - ✅ **Zero Overhead When Disabled** - Fully opt-in, no performance cost if unused
 - ✅ **Stdio + HTTP** - Metrics work across both transports
+
+#### 🏥 Health Checks & Diagnostics (NEW! v1.15.0)
+- ✅ **Built-In Health Endpoint** - `GET /mcp/health` exposed automatically
+- ✅ **One-Line Setup** - `builder.WithHealthChecks()` — no configuration required
+- ✅ **Plug-In Custom Checks** - Add any check as a simple lambda (no interfaces needed)
+- ✅ **Parallel Execution** - All checks run concurrently with per-check timeout
+- ✅ **Standard HTTP Status Codes** - 200 Healthy / 207 Degraded / 503 Unhealthy
+- ✅ **Kubernetes & Docker Ready** - Drop-in for liveness/readiness probes
+- ✅ **Auto Server Diagnostics** - Tool count, uptime, framework version included
+- ✅ **Zero Overhead When Disabled** - Fully opt-in, endpoint not registered unless configured
 
 ## 🚀 Quick Start
 
@@ -69,6 +79,37 @@ dotnet build -c Release
 ### Create Your First MCP Server
 
 #### 1. Define Your Tools
+
+Create a static class with `[McpTool]`-decorated static methods:
+
+```csharp
+using FastMCP.Attributes;
+
+public static class MyTools
+{
+    [McpTool(Description = "Adds two numbers")]
+    public static int Add(int a, int b) => a + b;
+
+    [McpTool(Description = "Returns an echo of the input")]
+    public static string Echo(string message) => message;
+}
+```
+
+#### 2. Create Program.cs
+
+```csharp
+using FastMCP.Hosting;
+using FastMCP.Server;
+using System.Reflection;
+
+var server = new FastMCPServer("MyMcpServer");
+var builder = McpServerBuilder.Create(server, args);
+builder.WithComponentsFrom(Assembly.GetExecutingAssembly());
+
+var app = builder.Build();
+await app.RunMcpAsync(args);
+```
+
 ### Running the Example Server
 
 ```bash
@@ -273,7 +314,6 @@ FASTMCP_SERVER_AUTH_GOOGLE_CLIENT_SECRET=your-client-secret
 
 <details>
 <summary><b>GitHub</b></summary>
-### Run Unit & Integration Tests
 
 ```csharp
 builder.AddGitHubTokenVerifier();
@@ -448,11 +488,10 @@ var builder = McpServerBuilder.Create(mcpServer, args);
 builder.AddAzureAdTokenVerifier();  // or any other provider
 
 builder.WithComponentsFrom(Assembly.GetExecutingAssembly());
-Returns server metadata. The example server returns:
 
 var app = builder.Build();
 app.Urls.Add("http://localhost:5002");
-await app.RunAsync();
+await app.RunMcpAsync(args);
 ```
 
 ### Protected Tools
@@ -581,18 +620,14 @@ Test files include:
 
 ### Complete Authentication Guide
 
-See [`mcp-authentication-guide.md`](mcp-authentication-guide.md) for:
-- Detailed provider setup instructions
-- OAuth flow walkthrough
-- Troubleshooting guide
-- Best practices
-- Production deployment checklist
+See [MFA Support Guide](docs/mfa-support-guide.md) for enforcing Multi-Factor Authentication on sensitive tools, and the individual provider README files under `examples/Auth/` for detailed OAuth setup instructions.
 
 ### Example Projects
 
 | Example | Description | Port |
 |---------|-------------|------|
 | [BasicServer](examples/BasicServer) | Simple MCP server without authentication | 5000 |
+| [HealthChecksDemo](examples/HealthChecksDemo) | 🏥 Health monitoring & diagnostics demo | 5000 |
 | [TelemetryDemo](examples/TelemetryDemo) | 📡 OpenTelemetry metrics & tracing demo | 5000 |
 | [AzureAdOAuth](examples/Auth/AzureAdOAuth) | Azure AD authentication example | 5002 |
 | [GoogleOAuth](examples/Auth/GoogleOAuth) | Google OAuth example | 5000 |
@@ -604,7 +639,80 @@ See [`mcp-authentication-guide.md`](mcp-authentication-guide.md) for:
 
 ## 🏗️ Advanced Features
 
-### 📡 Observability — OpenTelemetry (NEW! v1.14.0)
+### 🏥 Health Checks & Diagnostics (NEW! v1.15.0)
+
+FastMCP ships with a built-in production health check endpoint. Enable with one line and plug in any custom check as a simple lambda.
+
+```csharp
+using FastMCP.Health;
+
+// Zero-config — exposes GET /mcp/health automatically
+builder.WithHealthChecks();
+
+// With custom checks (database, LLM provider, memory, etc.)
+builder.WithHealthChecks(checks =>
+{
+    checks.AddCheck("memory", () =>
+        GC.GetTotalMemory(false) < 500_000_000L); // sync: < 500 MB
+
+    checks.AddAsyncCheck("database", async ct =>
+        await dbContext.Database.CanConnectAsync(ct));
+
+    checks.AddAsyncCheck("llm_provider", async ct =>
+        await llmProvider.IsHealthyAsync(ct));
+});
+```
+
+**Response JSON (HTTP 200 — Healthy):**
+
+```json
+{
+  "status": "Healthy",
+  "timestamp": "2026-04-19T20:00:00Z",
+  "checks": [
+    { "name": "mcp_server",   "status": "Healthy", "durationMs": 0 },
+    { "name": "memory",       "status": "Healthy", "durationMs": 0.1 },
+    { "name": "database",     "status": "Healthy", "durationMs": 4.9 },
+    { "name": "llm_provider", "status": "Healthy", "durationMs": 22.3 }
+  ],
+  "diagnostics": {
+    "serverName": "my-mcp-server",
+    "frameworkVersion": "1.15.0.0",
+    "toolCount": 12,
+    "uptimeSeconds": 3721.4
+  }
+}
+```
+
+**HTTP status code mapping:**
+
+| Status | HTTP Code | Meaning |
+|---|---|---|
+| `Healthy` | **200** | All checks passed |
+| `Degraded` | **207** | Server up, ≥1 check timed out |
+| `Unhealthy` | **503** | ≥1 check failed or threw |
+
+**Kubernetes liveness / readiness probe:**
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /mcp/health
+    port: 5000
+  initialDelaySeconds: 15
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /mcp/health
+    port: 5000
+  periodSeconds: 10
+```
+
+**See [Health Checks Guide](docs/health-checks-guide.md) for full documentation**, including Docker Compose, Azure Container Apps, per-check timeout configuration, unit testing patterns, and complete validation examples.
+
+---
+
+### 📡 Observability — OpenTelemetry (v1.14.0)
 
 FastMCP ships with built-in OpenTelemetry instrumentation. Enable with one line and connect to any backend.
 
@@ -651,7 +759,7 @@ builder.Services.AddOpenTelemetry()
 dotnet-counters monitor -n YourAppName --counters FastMCP
 ```
 
-**See [Observability Guide](../Documentation/observability-guide.md) for full documentation**, including production exporter setup, distributed tracing details, and real request/response validation examples.
+**See [Observability Guide](docs/observability-guide.md) for full documentation**, including production exporter setup, distributed tracing details, and real request/response validation examples.
 
 ---
 
@@ -809,7 +917,7 @@ public class AITools
 | **Hugging Face** | `AddHuggingFaceProvider()` | Any model | Open-source, flexibility |
 | **Deepseek** | `AddDeepseekProvider()` | `deepseek-v3.2` | Cost-effective, reasoning |
 
-**See [LLM Integration Guide](../Documentation/llm-integration-guide.md) for complete documentation.**
+**See [LLM Integration Guide](docs/llm-integration-guide.md) for complete documentation.**
 
 ### Background Tasks (NEW!)
 
@@ -944,14 +1052,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html)
 
 ### Framework Documentation
-- [Observability Guide](../Documentation/observability-guide.md) 🆕 **v1.14.0**
-- [LLM Integration Guide](../Documentation/llm-integration-guide.md)
-- [Protocol Discovery Guide](Documentation/protocol-discovery-guide.md)
-- [Client Library Guide](Documentation/client-library-guide.md)
-- [Context & Interaction Guide](Documentation/context-interaction-guide.md)
-- [Middleware Interception Guide](Documentation/middleware-interception-guide.md)
-- [SSE Transport Guide](Documentation/sse-transport-guide.md)
-- [Stdio Transport Guide](Documentation/stdio-transport-guide.md)
+- [Health Checks Guide](docs/health-checks-guide.md) 🆕 **v1.15.0**
+- [Observability Guide](docs/observability-guide.md) **v1.14.0**
+- [LLM Integration Guide](docs/llm-integration-guide.md)
+- [Protocol Discovery Guide](docs/protocol-discovery-guide.md)
+- [Client Library Guide](docs/client-library-guide.md)
+- [Context & Interaction Guide](docs/context-interaction-guide.md)
+- [Middleware Interception Guide](docs/middleware-interception-guide.md)
+- [SSE Transport Guide](docs/sse-transport-guide.md)
+- [Stdio Transport Guide](docs/stdio-transport-guide.md)
 - [ASP.NET Core Documentation](https://docs.microsoft.com/en-us/aspnet/core/)
 - [.NET 8.0 Documentation](https://docs.microsoft.com/en-us/dotnet/)
 
@@ -969,7 +1078,18 @@ For bug reports and feature requests, please use [GitHub Issues](https://github.
 
 ## ✨ What's New
 
-### v1.14.0 - OpenTelemetry Observability (Latest - Mar 2026)
+### v1.15.0 - Health Checks & Diagnostics (Latest - Apr 2026)
+- 🏥 **Built-In Health Endpoint** - `GET /mcp/health` exposed with a single `builder.WithHealthChecks()` call
+- 🔌 **Lambda-Based Custom Checks** - Add any check (`database`, `llm`, `memory`, external API) as a simple lambda with no interface to implement
+- ⚡ **Parallel Execution** - All checks run concurrently; a slow check never delays a fast one
+- ⏱️ **Per-Check Timeout** - Configurable `MaxResponseTimeMs`; hanging checks reported as `Degraded`, not left blocking
+- 🌐 **Standard HTTP Status Codes** - 200 Healthy / 207 Degraded / 503 Unhealthy; understood natively by Kubernetes, load balancers, and APM tools
+- 📊 **Auto Server Diagnostics** - Automatically includes server name, framework version, tool/resource/prompt counts, and uptime
+- 🛡️ **Always Reachable** - Endpoint marked `AllowAnonymous()` so infrastructure probes bypass authentication
+- 🎯 **Zero Overhead** - Fully opt-in; endpoint is not registered unless `WithHealthChecks()` is called
+- 📚 **Comprehensive Docs** - Full guide covering Kubernetes, Docker, ACA probes, validation walkthrough, and unit tests
+
+### v1.14.0 - OpenTelemetry Observability (Mar 2026)
 - 📡 **OpenTelemetry Integration** - First-class metrics and distributed tracing built in
 - 📊 **5 Auto-Tracked Metrics** - Tool invocations, duration, errors, prompt requests, resource reads
 - ✨ **One-Line Setup** - `builder.WithTelemetry()` with zero boilerplate
@@ -993,7 +1113,7 @@ For bug reports and feature requests, please use [GitHub Issues](https://github.
 - ✅ **Granular Control** - Enable per-tool using `[AuthorizeMcpTool(RequireMfa=true)]`
 - 🔒 **Enhanced Security** - Standards-based multi-factor authentication check
 
-### v1.11.0 - Binary Content Support (Latest)
+### v1.11.0 - Binary Content Support
 - ✅ **Polymorphic Content** - Support for mixed Text and Image responses
 - ✅ **Image Support** - Return Base64 encoded images from tools
 - ✅ **Multimodal Prompts** - Embbed images in prompts for LLM context

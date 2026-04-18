@@ -1,7 +1,7 @@
 using FastMCP.Attributes;
 
-public class HealthChecksDemoTools
+public static class HealthChecksDemoTools
 {
     [McpTool("ping", Description = "Returns a simple pong response")]
-    public string Ping() => "pong from HealthChecksDemo";
+    public static string Ping() => "pong from HealthChecksDemo";
 }
