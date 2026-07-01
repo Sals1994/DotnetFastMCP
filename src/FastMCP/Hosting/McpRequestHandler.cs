@@ -611,7 +611,7 @@ public class McpRequestHandler
             Result = new
             {
                 protocolVersion = "2024-11-05", // Spec version
-                server = new
+                serverInfo = new
                 {
                     name = server.Name,
                     version = server.Version,
